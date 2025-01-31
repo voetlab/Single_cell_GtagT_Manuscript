@@ -1,0 +1,308 @@
+---
+title: "Make inferCNV pseudobulk heatmap"
+date: "2024-04-24"
+output: html_document
+---
+
+## Load necessary libraries for the analysis
+
+```{r}
+library(Seurat)
+library(SingleCellExperiment)
+library(dplyr)
+library(viridis)
+library(ggplot2)
+library(ggpubr)
+library(tidygenomics)
+library(ComplexHeatmap)
+library(circlize)
+here::i_am("scripts/MEL006/RNA/inferCNVheatmap_figure3.Rmd")
+library(here)
+here()
+```
+
+## Load the necessary files
+
+```{r}
+file_sco <- here("data", "MEL006", "RNA", "sce.rds")
+sampleannotationfile <- here("data", "MEL006", "DNA", "SampleDescrC.txt")
+CNA_DNAbulk <- here("data", "MEL006", "DNA", "CNseg.SPCF.10_pseudobulks.txt")
+
+```
+
+```{r}
+sampleannotation <- read.delim(file = sampleannotationfile, as.is = T, sep = " ")
+sampleannotation <- sampleannotation[!is.na(sampleannotation$subclones),]
+sampleannotation$DNA <- sub("_S[0-9]+$", "", sampleannotation$DNA)
+sampleannotation$DNA <- sub("_T04", "", sampleannotation$DNA)
+sampleannotation$DNA <- sub("_T28", "", sampleannotation$DNA)
+sampleannotation$DNA <- sub("_T00", "", sampleannotation$DNA)
+```
+
+
+```{r}
+test <- readRDS( here("results", "MEL006", "inferCNV", "19_HMM_pred.Bayes_NetHMMi6.rand_trees.hmm_mode-subclusters.Pnorm_0.5.infercnv_obj"))
+inferCNVmel006 <- test@expr.data
+inferCNVmel006 <- data.frame(inferCNVmel006[, colnames(inferCNVmel006) %in% rownames(sampleannotation)])
+```
+
+
+```{r}
+sco <- readRDS(file_sco)
+metaGene <- rowData(sco)[!is.na(rowData(sco)$chromosome_name), c("chromosome_name", "start_position", "end_position")]
+metaGene <- metaGene[
+  with(metaGene, order(as.integer(as.character(chromosome_name)), as.integer(start_position))),
+]
+```
+
+```{r}
+orderGenes <- rownames(metaGene)
+```
+
+
+```{r}
+CNAmatrix <- read.csv(CNA_DNAbulk, header = T, row.names = 1)
+binsMeta <- CNAmatrix[,c("chr","start","end" )]
+binsMeta$id <- rownames(binsMeta)
+CNA <- CNAmatrix[4:(length(CNAmatrix))]
+
+```
+
+
+```{r}
+colnames(metaGene) <- c("chr","start","end" )
+metaGene$id <- rownames(metaGene)
+```
+
+```{r}
+geneBins <- genome_intersect(data.frame(metaGene), data.frame(binsMeta), by=c("chr","start","end" ), mode="both")
+geneBins <- data.frame(geneBins)
+geneBins$length <- geneBins$end - geneBins$start
+
+geneBins <- geneBins[order(geneBins[,'id.x'],-geneBins[,'length']),]
+geneBins <- geneBins[!duplicated(geneBins$id.x),]
+
+geneBins <- geneBins[order(geneBins[,'chr'],geneBins[,'start']),]
+
+rownames(geneBins) <- geneBins$id.x
+geneBins <- geneBins[,c("chr","id.y")]
+colnames(geneBins)[2] <- "Bin"
+geneBins$Gene <- rownames(geneBins)
+```
+
+
+```{r}
+geneCNV <- merge(geneBins,CNA, by.x = "Bin", by.y = 0, left = T)
+rownames(geneCNV) <- geneCNV$Gene
+geneCNV <- geneCNV[,!colnames(geneCNV) %in% c("Bin", "Gene")]
+table(geneCNV$chr)
+geneCNV <- geneCNV[,c("chr", "T0_A_Gtag", "T0_B_Gtag", "T0_C_Gtag", "T28_A_Gtag", "T28_B_Gtag", "T28_C_Gtag", "T4_A_Gtag", "T4_B_Gtag", "T4_C_Gtag")]
+geneCNVorder <- orderGenes[orderGenes %in% rownames(geneCNV)]
+geneCNV <- geneCNV[ order(match(rownames(geneCNV), rownames(geneCNVorder))), ]
+```
+
+```{r}
+geneCNVorder <- orderGenes[orderGenes %in% rownames(inferCNVmel006)]
+inferCNVmel006 <- inferCNVmel006[ order(match(rownames(inferCNVmel006), rownames(geneCNVorder))), ]
+
+inferCNVmel006
+```
+
+
+
+```{r}
+geneCNVfil <- geneCNV[ rownames(geneCNV) %in% rownames(inferCNVmel006) , ]
+inferCNVmel006fil <- inferCNVmel006[rownames(inferCNVmel006) %in% rownames(geneCNVfil),]
+orderGenes <- orderGenes[orderGenes%in% rownames(inferCNVmel006fil)]
+inferCNVmel006fil <- inferCNVmel006fil[ order(match(rownames(inferCNVmel006fil), orderGenes)), ]
+geneCNVfil <- geneCNVfil[ order(match(rownames(geneCNVfil), orderGenes)), ]
+table(rownames(geneCNVfil) == rownames(inferCNVmel006fil) )
+
+```
+
+```{r}
+locGene <- geneCNVfil[,"chr", drop = F]
+geneCNVfil <- geneCNVfil[,-1]
+geneCNVfil[geneCNVfil>6] <- 6
+```
+
+
+
+```{r}
+rnaA <- rownames(sampleannotation[sampleannotation$subclones == "A",])
+rnaB <- rownames(sampleannotation[sampleannotation$subclones == "B",])
+rnaC <- rownames(sampleannotation[sampleannotation$subclones == "C",])
+
+dnaA <- sampleannotation[sampleannotation$subclones == "A", "DNA"]
+dnaB <- sampleannotation[sampleannotation$subclones == "B", "DNA"]
+dnaC <- sampleannotation[sampleannotation$subclones == "C", "DNA"]
+
+```
+
+```{r}
+inferCNVmel006filA <- t(inferCNVmel006fil[, colnames(inferCNVmel006fil) %in% rnaA])
+inferCNVmel006filB <- t(inferCNVmel006fil[, colnames(inferCNVmel006fil) %in% rnaB])
+inferCNVmel006filC <- t(inferCNVmel006fil[, colnames(inferCNVmel006fil) %in% rnaC])
+```
+
+```{r}
+#geneCNVfil <- geneCNVfil[ order(match(rownames(geneCNVfil), rownames(metaGene))), ]
+geneCNVbulkFilA <- t(geneCNVfil[ , c(1,4, 7) ])
+geneCNVbulkFilB <- t(geneCNVfil[ , c(2,5, 8) ])
+geneCNVbulkFilC <- t(geneCNVfil[ , c(3,6, 9) ])
+```
+
+```{r}
+sampleannotation$timepoint_subclone <- paste0(sampleannotation[,"subclones"], " ", sampleannotation[,"timepoint"])
+
+metaInferCNV <- sampleannotation[rownames(sampleannotation) %in% colnames(inferCNVmel006fil),]
+
+metaCNV <- sampleannotation
+rownames(metaCNV) <-  metaCNV$DNA
+```
+
+```{r}
+metaBulk <- data.frame(colnames(geneCNVfil))
+rownames(metaBulk) <- metaBulk[,1]
+colnames(metaBulk) <- "Subclone"
+metaBulk$Subclone <- c("A T0", "B T0", "C T0", "A T04", "B T04", "C T04", "A T28", "B T28", "C T28" )
+
+
+
+```
+
+
+```{r}
+color <- structure(c("black", "#0571b0", "#92c5de", "grey96", "lightsalmon", "tomato", "red4"), names = c("0","1","2","3","4","5","6"))
+
+ha = HeatmapAnnotation(df = as.numeric(as.character(locGene[,"chr"])),
+                       show_annotation_name = F,
+                       col = list(df = structure(rep(c("Grey", "Black"),11),names = 1:22)),
+                       show_legend = F
+                      )
+
+hoA = rowAnnotation(Subclone = metaInferCNV[metaInferCNV$subclones == "A","timepoint_subclone"],
+                       show_annotation_name = F,
+                       col = list(Subclone = structure(c("#00A087FF", '#7EEEDCFF', "#91D1C2FF"),
+                                                 names = c("A T0", "A T04", "A T28"))),
+                       show_legend = T
+                      )
+
+hoB = rowAnnotation(Subclone = metaInferCNV[metaInferCNV$subclones == "B","timepoint_subclone"],
+                       show_annotation_name = F,
+                       col = list(Subclone = structure(c("#3C5488FF", "#7FA2BEFF", "#8491B4FF"),
+                                                 names = c("B T0", "B T04", "B T28"))),
+                       show_legend = T
+                      )
+
+hoC = rowAnnotation(Subclone = metaInferCNV[metaInferCNV$subclones == "C","timepoint_subclone"],
+                       show_annotation_name = F,
+                       col = list(Subclone = structure(c("#7E6148FF", "#DB9467FF", "#F39B7FFF"),
+                                                 names = c("C T0", "C T04", "C T28"))),
+                       show_legend = T
+                      )
+
+hiA = rowAnnotation(Subclone = metaBulk[c(1,4,7),],
+                       show_annotation_name = F,
+                       col = list(Subclone = structure(c("#00A087FF", '#7EEEDCFF', "#91D1C2FF"),
+                                                 names = c("A T0", "A T04",  "A T28"))),
+                       show_legend = T
+                      )
+
+hiB = rowAnnotation(Subclone = metaBulk[c(2,5,8),],
+                       show_annotation_name = F,
+                       col = list(Subclone = structure(c("#3C5488FF", "#7FA2BEFF", "#8491B4FF"),
+                                                 names = c("B T0", "B T04", "B T28"))),
+                       show_legend = T
+                      )
+
+hiC = rowAnnotation(Subclone = metaBulk[c(3,6,9),],
+                       show_annotation_name = F,
+                       col = list(Subclone = structure(c("#7E6148FF", "#DB9467FF", "#F39B7FFF"),
+                                                 names = c("C T0",  "C T04", "C T28"))),
+                       show_legend = T
+                      )
+
+
+
+```
+
+```{r}
+ht_list <- Heatmap(inferCNVmel006filA,
+        cluster_rows = T,
+        name = "\ninferCNV copy number",
+        cluster_columns = F,
+        column_split = as.numeric(as.character(locGene[,"chr"])),
+        col = colorRamp2(c(0, 3, 5), c("blue", "white", "red")),
+        top_annotation = ha,
+        left_annotation = hoA,
+        show_row_names = F,
+        show_column_names = F,
+        height = unit(4, "cm"))%v%
+  Heatmap(geneCNVbulkFilA,
+        cluster_rows = T,
+        name = "\nCopy number",
+        cluster_columns = F,
+        column_split = as.numeric(as.character(locGene[,"chr"])),
+        col = color ,
+        left_annotation = hiA,
+        #top_annotation = ha,
+        show_row_names = F,
+        show_column_names = F,
+        height = unit(0.5, "cm"))%v% 
+  Heatmap(inferCNVmel006filB,
+        cluster_rows = T,
+        name = "\ninferCNV copy number",
+        cluster_columns = F,
+        column_split = as.numeric(as.character(locGene[,"chr"])),
+        col = colorRamp2(c(0, 3, 5), c("blue", "white", "red")),
+        left_annotation = hoB,
+        top_annotation = ha,
+        show_row_names = F,
+        show_column_names = F,
+        height = unit(4, "cm"))%v%
+  Heatmap(geneCNVbulkFilB,
+        cluster_rows = T,
+        name = "\nCopy number",
+        cluster_columns = F,
+        column_split = as.numeric(as.character(locGene[,"chr"])),
+        col = color ,
+        left_annotation = hiB,
+        #top_annotation = ha,
+        show_row_names = F,
+        show_column_names = F,
+        height = unit(0.5, "cm"))%v%
+  Heatmap(inferCNVmel006filC,
+        cluster_rows = T,
+        name = "\ninferCNV copy number",
+        cluster_columns = F,
+        column_split = as.numeric(as.character(locGene[,"chr"])),
+        col = colorRamp2(c(0, 3, 5), c("blue", "white", "red")),
+        left_annotation = hoC,
+        top_annotation = ha,
+        show_row_names = F,
+        show_column_names = F,
+        height = unit(4, "cm"))%v%
+  Heatmap(geneCNVbulkFilC,
+        cluster_rows = T,
+        name = "\nCopy number",
+        cluster_columns = F,
+        column_split = as.numeric(as.character(locGene[,"chr"])),
+        col = color ,
+        left_annotation = hiC,
+        #top_annotation = ha,
+        show_row_names = F,
+        show_column_names = F,
+         height = unit(0.5, "cm"))
+```
+
+```{r}
+pdf("../example_heatmap.pdf", width = 15, height = 8)
+draw(ht_list, ht_gap = unit(c(0.3, 1, 0.3, 1, 0.3), "cm"), merge_legend = TRUE)
+dev.off()
+```
+
+```{r}
+saveRDS(ht_list, file = "../heatmapfig3.rds")
+```
+
