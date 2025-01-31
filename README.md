@@ -7,8 +7,8 @@ This manuscript can be found on:
 ## Data availability
 The data genarated and used in this manuscript can be found on EGA with accession numbers:
 
-- EGAS00001007043 (Gtag&T data of PDX model and HCC38 and HCC38-BL celline)
-- EGAS00001001204 (G&T data of HCC38 and HCC38-BL celline )
+- EGAS00001007043 (Gtag&T data of PDX model and HCC38 and HCC38-BL cell line)
+- EGAS00001001204 (G&T data of HCC38 and HCC38-BL cell line)
 
 Other datasets that were used can be found on SRA:
 - DNTR: PRJNA603321 
